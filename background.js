@@ -1,37 +1,67 @@
+const pendingSubmissions = {}
+
 chrome.runtime.onMessage.addListener((msg, sender) => {
 
   if (msg.type === "CF_SUBMIT") {
 
     const { contestId, problemIndex, code, languageId } = msg
 
-    const url =
+    const submitUrl =
       `https://codeforces.com/problemset/submit?contestId=${contestId}&problemIndex=${problemIndex}`
 
-    chrome.tabs.create({ url, active: false }, (tab) => {
+    chrome.tabs.create({ url: submitUrl, active: false }, (tab) => {
 
       const tabId = tab.id
 
-      const listener = (id, info) => {
-
-        if (id !== tabId) return
-        if (info.status !== "complete") return
-
-        chrome.tabs.sendMessage(tabId, {
-          type: "CF_FILL_SUBMIT",
-          code,
-          languageId,
-          tabId,
-          contestId,
-          problemIndex
-        })
-
-        chrome.tabs.onUpdated.removeListener(listener)
-
+      pendingSubmissions[tabId] = {
+        contestId,
+        problemIndex,
+        code,
+        languageId,
+        submitUrl
       }
 
-      chrome.tabs.onUpdated.addListener(listener)
-
     })
+
+  }
+
+})
+
+
+chrome.runtime.onMessage.addListener((msg, sender) => {
+
+  if (msg.type === "CF_REQUEST_SUBMIT_DATA") {
+
+    const tabId = sender.tab.id
+
+    const data = pendingSubmissions[tabId]
+
+    if (!data) return
+
+    chrome.tabs.sendMessage(tabId, {
+      type: "CF_FILL_SUBMIT",
+      ...data,
+      tabId
+    })
+
+  }
+
+})
+
+
+chrome.runtime.onMessage.addListener((msg) => {
+
+  if (msg.type === "CF_LOGIN_REQUIRED") {
+
+    const tabId = msg.tabId
+    const data = pendingSubmissions[tabId]
+
+    if (!data) return
+
+    const loginUrl =
+      `https://codeforces.com/enter?back=${encodeURIComponent(data.submitUrl)}`
+
+    chrome.tabs.update(tabId, { url: loginUrl })
 
   }
 
@@ -51,6 +81,7 @@ chrome.runtime.onMessage.addListener((msg) => {
 
     setTimeout(() => {
       chrome.tabs.remove(tabId)
+      delete pendingSubmissions[tabId]
     }, 2000)
 
     if (handle) {

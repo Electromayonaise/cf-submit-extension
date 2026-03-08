@@ -5,7 +5,9 @@ window.addEventListener("message", (event) => {
   chrome.runtime.sendMessage(event.data);
 });
 
+
 chrome.runtime.onMessage.addListener(async (msg) => {
+
   if (msg.type === "CF_SUBMIT_STATUS") {
     window.postMessage(msg, "*");
     return;
@@ -13,9 +15,24 @@ chrome.runtime.onMessage.addListener(async (msg) => {
 
   if (msg.type !== "CF_FILL_SUBMIT") return;
 
-  const { code, languageId, tabId } = msg;
+  const { code, languageId, tabId, contestId, problemIndex, submitUrl } = msg;
 
   try {
+
+    if (isHomePage()) {
+
+      const loginUrl =
+        `https://codeforces.com/enter?back=${encodeURIComponent(submitUrl)}`;
+
+      window.location.href = loginUrl;
+
+      return;
+    }
+
+    if (isLoginPage()) {
+      return;
+    }
+
     await waitForSubmitPage();
 
     const lang = document.querySelector("select[name='programTypeId']");
@@ -52,12 +69,34 @@ chrome.runtime.onMessage.addListener(async (msg) => {
       type: "CF_SUBMITTED",
       tabId,
       handle,
-      contestId: msg.contestId,
-      problemIndex: msg.problemIndex,
+      contestId,
+      problemIndex,
       timestamp,
     });
+
   } catch (_) {}
+
 });
+
+
+window.addEventListener("load", () => {
+
+  chrome.runtime.sendMessage({
+    type: "CF_REQUEST_SUBMIT_DATA"
+  })
+
+})
+
+
+function isHomePage() {
+  return window.location.pathname === "/";
+}
+
+
+function isLoginPage() {
+  return window.location.pathname === "/enter";
+}
+
 
 function getHandle() {
   const links = document.querySelectorAll("a[href^='/profile/']");
@@ -75,6 +114,7 @@ function getHandle() {
   return null;
 }
 
+
 function waitForSubmitPage() {
   return new Promise((resolve) => {
     const interval = setInterval(() => {
@@ -87,6 +127,7 @@ function waitForSubmitPage() {
     }, 200);
   });
 }
+
 
 function waitForTurnstile() {
   return new Promise((resolve) => {
@@ -110,6 +151,7 @@ function waitForTurnstile() {
     }, 600);
   });
 }
+
 
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
