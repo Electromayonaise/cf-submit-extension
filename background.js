@@ -20,7 +20,9 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
           type: "CF_FILL_SUBMIT",
           code,
           languageId,
-          tabId
+          tabId,
+          contestId,
+          problemIndex
         })
 
         chrome.tabs.onUpdated.removeListener(listener)
@@ -40,7 +42,7 @@ chrome.runtime.onMessage.addListener((msg) => {
 
   if (msg.type === "CF_SUBMITTED") {
 
-    const { tabId, handle } = msg
+    const { tabId, handle, contestId, problemIndex, timestamp } = msg
 
     broadcast({
       type: "CF_SUBMIT_STATUS",
@@ -52,7 +54,7 @@ chrome.runtime.onMessage.addListener((msg) => {
     }, 2000)
 
     if (handle) {
-      pollVerdict(handle)
+      pollVerdict(handle, contestId, problemIndex, timestamp)
     }
 
   }
@@ -60,23 +62,34 @@ chrome.runtime.onMessage.addListener((msg) => {
 })
 
 
-async function pollVerdict(handle) {
+async function pollVerdict(handle, contestId, problemIndex, timestamp) {
 
   let submissionId = null
 
-  // esperar a que aparezca el submission nuevo
-  for (let i = 0; i < 20; i++) {
+  for (let i = 0; i < 25; i++) {
 
     const res = await fetch(
-      `https://codeforces.com/api/user.status?handle=${handle}&from=1&count=1`
+      `https://codeforces.com/api/user.status?handle=${handle}&from=1&count=10`
     )
 
     const data = await res.json()
 
-    if (data && data.result && data.result.length > 0) {
+    if (data && data.result) {
 
-      submissionId = data.result[0].id
-      break
+      const submission = data.result.find(s =>
+
+        s.problem &&
+        s.problem.contestId == contestId &&
+        s.problem.index == problemIndex &&
+        s.creationTimeSeconds >= timestamp
+      )
+
+      if (submission) {
+
+        submissionId = submission.id
+        break
+
+      }
 
     }
 
@@ -87,11 +100,10 @@ async function pollVerdict(handle) {
   if (!submissionId) return
 
 
-  // esperar a que termine el judge
-  for (let i = 0; i < 60; i++) {
+  for (let i = 0; i < 80; i++) {
 
     const res = await fetch(
-      `https://codeforces.com/api/user.status?handle=${handle}&from=1&count=5`
+      `https://codeforces.com/api/user.status?handle=${handle}&from=1&count=20`
     )
 
     const data = await res.json()
