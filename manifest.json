@@ -1,0 +1,27 @@
+{
+  "manifest_version": 3,
+  "name": "CF Submit Bridge",
+  "version": "1.0.0",
+  "description": "Submit Codeforces solutions from external platforms",
+  "permissions": [
+    "tabs",
+    "scripting"
+  ],
+  "host_permissions": [
+    "https://codeforces.com/*",
+    "http://localhost:3000/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://codeforces.com/*",
+        "http://localhost:3000/*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}
