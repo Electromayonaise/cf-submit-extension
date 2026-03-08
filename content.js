@@ -36,7 +36,7 @@ chrome.runtime.onMessage.addListener(async (msg) => {
 
     await waitForTurnstile()
 
-    await sleep(2000)
+    await sleep(1500)
 
     const submitBtn =
       document.querySelector("#singlePageSubmitButton") ||
@@ -44,55 +44,20 @@ chrome.runtime.onMessage.addListener(async (msg) => {
 
     if (!submitBtn) return
 
-    submitBtn.click()
-    await sleep(2000)
-    
-    chrome.runtime.sendMessage({
-      type: "CF_SUBMIT_STATUS",
-      status: "submitted"
-    })
-
     const handle = getHandle()
 
-    if (!handle) return
-
-    const submissionId = await waitForNewSubmission(handle)
+    submitBtn.click()
 
     chrome.runtime.sendMessage({
-      type: "CF_CLOSE_TAB",
-      tabId
+      type: "CF_SUBMITTED",
+      tabId,
+      handle
     })
-
-    if (submissionId) {
-      pollVerdict(handle, submissionId)
-    }
 
   } catch (_) {}
 
 })
 
-
-async function waitForNewSubmission(handle) {
-
-  for (let i = 0; i < 15; i++) {
-
-    const res = await fetch(
-      `https://codeforces.com/api/user.status?handle=${handle}&from=1&count=1`
-    )
-
-    const data = await res.json()
-
-    if (data && data.result && data.result.length > 0) {
-      return data.result[0].id
-    }
-
-    await sleep(1000)
-
-  }
-
-  return null
-
-}
 
 function getHandle() {
 
@@ -111,46 +76,6 @@ function getHandle() {
   }
 
   return null
-
-}
-
-
-async function pollVerdict(handle, submissionId) {
-
-  for (let i = 0; i < 40; i++) {
-
-    const res = await fetch(
-      `https://codeforces.com/api/user.status?handle=${handle}&from=1&count=10`
-    )
-
-    const data = await res.json()
-
-    if (!data || !data.result) {
-      await sleep(2000)
-      continue
-    }
-
-    const submission =
-      data.result.find(s => String(s.id) === String(submissionId))
-
-    if (submission && submission.verdict) {
-
-      chrome.runtime.sendMessage({
-        type: "CF_SUBMIT_STATUS",
-        status: "finished",
-        verdict: submission.verdict === "OK"
-          ? "Accepted"
-          : submission.verdict,
-        passedTests: submission.passedTestCount
-      })
-
-      return
-
-    }
-
-    await sleep(2000)
-
-  }
 
 }
 
