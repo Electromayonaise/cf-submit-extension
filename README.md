@@ -17,7 +17,7 @@ copiar y pegar el código manualmente en la página de Codeforces.
 
 Funciona junto con la plataforma:
 
-https://github.com/Electromayonaise/cf-submit-extension
+https://github.com/Electromayonaise/cf-extension-platform.git
 
 y permite que un entorno local de práctica se comporte de forma similar
 a un sistema de juez en línea.
