@@ -1,158 +1,225 @@
 window.addEventListener("message", (event) => {
-  if (!event.data) return;
-  if (event.data.type !== "CF_SUBMIT") return;
 
-  chrome.runtime.sendMessage(event.data);
-});
+  if (!event.data) return
+  if (event.data.type !== "CF_SUBMIT") return
 
+  chrome.runtime.sendMessage(event.data)
+
+})
 
 chrome.runtime.onMessage.addListener(async (msg) => {
 
   if (msg.type === "CF_SUBMIT_STATUS") {
-    window.postMessage(msg, "*");
-    return;
+    window.postMessage(msg, "*")
+    return
   }
 
-  if (msg.type !== "CF_FILL_SUBMIT") return;
+  if (msg.type !== "CF_FILL_SUBMIT") return
 
-  const { code, languageId, tabId, contestId, problemIndex, submitUrl } = msg;
+  const { code, languageId, tabId, contestId, problemIndex } = msg
 
   try {
 
     if (isHomePage()) {
-
-      const loginUrl =
-        `https://codeforces.com/enter?back=${encodeURIComponent(submitUrl)}`;
-
-      window.location.href = loginUrl;
-
-      return;
+      chrome.runtime.sendMessage({ type: "CF_LOGIN_REQUIRED", tabId })
+      return
     }
 
     if (isLoginPage()) {
-      return;
+      return
     }
 
-    await waitForSubmitPage();
+    await waitForSubmitPage()
 
-    const lang = document.querySelector("select[name='programTypeId']");
-    const editor = document.querySelector("textarea[name='source']");
+    const lang   = document.querySelector("select[name='programTypeId']")
+    const editor = document.querySelector("textarea[name='source']")
 
-    if (!lang || !editor) return;
+    if (!lang || !editor) return
 
-    lang.value = languageId;
-    lang.dispatchEvent(new Event("change", { bubbles: true }));
+    lang.value = languageId
+    lang.dispatchEvent(new Event("change", { bubbles: true }))
 
-    await sleep(800);
+    await sleep(800)
 
-    editor.value = code;
-    editor.dispatchEvent(new Event("input", { bubbles: true }));
-    editor.dispatchEvent(new Event("change", { bubbles: true }));
+    editor.value = code
+    editor.dispatchEvent(new Event("input",  { bubbles: true }))
+    editor.dispatchEvent(new Event("change", { bubbles: true }))
 
-    await waitForTurnstile();
+    const turnstileOk = await waitForTurnstile()
 
-    await sleep(1500);
+    if (!turnstileOk) {
+      chrome.runtime.sendMessage({ type: "CF_SUBMIT_ERROR", tabId })
+      return
+    }
+
+    await sleep(2000)
 
     const submitBtn =
       document.querySelector("#singlePageSubmitButton") ||
-      document.querySelector("input[type='submit']");
+      document.querySelector("input[type='submit']")
 
-    if (!submitBtn) return;
+    if (!submitBtn) return
 
-    const handle = getHandle();
+    const handle = getHandle()
 
-    submitBtn.click();
-
-    const timestamp = Math.floor(Date.now() / 1000);
-
+    // Avisar el handle ANTES del click para que background lo tenga listo
     chrome.runtime.sendMessage({
-      type: "CF_SUBMITTED",
+      type: "CF_CLICKED_SUBMIT",
       tabId,
       handle,
       contestId,
-      problemIndex,
-      timestamp,
-    });
+      problemIndex
+    })
+
+    submitBtn.click()
+
+    // Si no hubo redirección y aparece un error, es fallo de turnstile
+    const failed = await detectSubmitFailure()
+
+    if (failed) {
+      chrome.runtime.sendMessage({ type: "CF_SUBMIT_ERROR", tabId })
+    }
+
+    // Si no falla, CF redirige a /problemset/status
+    // El background detecta eso en onUpdated, cierra la tab y hace el poll
 
   } catch (_) {}
 
-});
-
-
-window.addEventListener("load", () => {
-
-  chrome.runtime.sendMessage({
-    type: "CF_REQUEST_SUBMIT_DATA"
-  })
-
 })
 
-
-function isHomePage() {
-  return window.location.pathname === "/";
-}
-
-
-function isLoginPage() {
-  return window.location.pathname === "/enter";
-}
-
-
-function getHandle() {
-  const links = document.querySelectorAll("a[href^='/profile/']");
-
-  for (const link of links) {
-    const href = link.getAttribute("href");
-
-    if (!href) continue;
-
-    const handle = href.split("/profile/")[1];
-
-    if (handle) return handle;
-  }
-
-  return null;
-}
-
-
-function waitForSubmitPage() {
-  return new Promise((resolve) => {
-    const interval = setInterval(() => {
-      const editor = document.querySelector("textarea[name='source']");
-
-      if (editor) {
-        clearInterval(interval);
-        resolve();
-      }
-    }, 200);
-  });
-}
-
+window.addEventListener("load", () => {
+  chrome.runtime.sendMessage({ type: "CF_REQUEST_SUBMIT_DATA" })
+})
 
 function waitForTurnstile() {
-  return new Promise((resolve) => {
-    const interval = setInterval(() => {
-      const iframe = document.querySelector(
-        "iframe[src*='challenges.cloudflare.com']",
-      );
 
-      if (!iframe) {
-        clearInterval(interval);
-        resolve();
-        return;
+  return new Promise(resolve => {
+
+    const APPEAR_TIMEOUT   = 5000
+    const COMPLETE_TIMEOUT = 20000
+
+    let appeared = false
+    let appearTimer
+
+    const waitAppear = setInterval(() => {
+
+      if (getTurnstileFrame()) {
+        clearInterval(waitAppear)
+        clearTimeout(appearTimer)
+        appeared = true
+        waitForCompletion()
       }
 
-      const label = iframe.getAttribute("aria-label") || "";
+    }, 300)
 
-      if (label.toLowerCase().includes("success")) {
-        clearInterval(interval);
-        resolve();
+    appearTimer = setTimeout(() => {
+      if (!appeared) {
+        clearInterval(waitAppear)
+        resolve(true)
       }
-    }, 600);
-  });
+    }, APPEAR_TIMEOUT)
+
+    function waitForCompletion() {
+
+      let completeTimer
+
+      const waitDone = setInterval(() => {
+
+        const tokenInput =
+          document.querySelector("input[name='cf-turnstile-response']") ||
+          document.querySelector("input[name='g-recaptcha-response']")
+
+        const solved =
+          !getTurnstileFrame() ||
+          (tokenInput && tokenInput.value && tokenInput.value.length > 10)
+
+        if (solved) {
+          clearInterval(waitDone)
+          clearTimeout(completeTimer)
+          resolve(true)
+        }
+
+      }, 400)
+
+      completeTimer = setTimeout(() => {
+        clearInterval(waitDone)
+        resolve(false)
+      }, COMPLETE_TIMEOUT)
+
+    }
+
+  })
+
 }
 
+function getTurnstileFrame() {
+  return document.querySelector("iframe[src*='challenges.cloudflare.com']") ||
+         document.querySelector("iframe[src*='turnstile']")
+}
+
+function detectSubmitFailure() {
+
+  return new Promise(resolve => {
+
+    const CHECK_DURATION = 4000
+
+    const interval = setInterval(() => {
+
+      const errorEl =
+        document.querySelector(".error:not(:empty)") ||
+        document.querySelector(".fieldError:not(:empty)")
+
+      if (errorEl && errorEl.textContent.trim().length > 0) {
+        clearInterval(interval)
+        clearTimeout(timer)
+        resolve(true)
+      }
+
+    }, 300)
+
+    const timer = setTimeout(() => {
+      clearInterval(interval)
+      resolve(false)
+    }, CHECK_DURATION)
+
+  })
+
+}
+
+function isHomePage() {
+  return window.location.pathname === "/"
+}
+
+function isLoginPage() {
+  return window.location.pathname === "/enter"
+}
+
+function getHandle() {
+  const link = document.querySelector("a[href^='/profile/']")
+  if (!link) return null
+  return link.textContent.trim()
+}
+
+function waitForSubmitPage() {
+
+  return new Promise(resolve => {
+
+    const interval = setInterval(() => {
+
+      const lang   = document.querySelector("select[name='programTypeId']")
+      const editor = document.querySelector("textarea[name='source']")
+
+      if (lang && editor) {
+        clearInterval(interval)
+        resolve()
+      }
+
+    }, 300)
+
+  })
+
+}
 
 function sleep(ms) {
-  return new Promise((r) => setTimeout(r, ms));
+  return new Promise(r => setTimeout(r, ms))
 }

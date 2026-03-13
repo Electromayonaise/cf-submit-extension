@@ -5,7 +5,8 @@
   "description": "Submit Codeforces solutions from external platforms",
   "permissions": [
     "tabs",
-    "scripting"
+    "scripting",
+    "windows"
   ],
   "host_permissions": [
     "https://codeforces.com/*",
